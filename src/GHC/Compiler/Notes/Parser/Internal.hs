@@ -23,7 +23,7 @@ import           GHC.Compiler.Utils.Lexer
 
 import           Lexer                     (Token(..))
 
-import           SrcLoc
+import GHC.Types.SrcLoc
 
 import qualified Text.Regex.Applicative    as Regex
 

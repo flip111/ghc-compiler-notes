@@ -1,5 +1,8 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeApplications #-}
 
 module GHC.Compiler.Notes.App where
 
@@ -18,7 +21,9 @@ import           Data.Kind
 
 import qualified Data.Text                  as Text
 
-import qualified DynFlags
+import qualified GHC.Driver.Flags as Flags
+import qualified GHC.Driver.Session as Session
+import qualified GHC.Driver.Monad as GHCMonad
 
 import           GHC                        (getSessionDynFlags, runGhc)
 
@@ -28,11 +33,9 @@ import           GHC.Generics
 import           GHC.LanguageExtensions     (Extension)
 import qualified GHC.Paths
 
-import qualified Packages
+import GHC.Types.SrcLoc
 
-import           SrcLoc
-
-data AppContext = AppContext { envDynFlags :: DynFlags.DynFlags
+data AppContext = AppContext { envSession :: Session.DynFlags
                              , envSourceResourceGetter :: FilePath -> Maybe SrcSpan -> Text.Text
                              }
   deriving Generic
@@ -40,45 +43,43 @@ data AppContext = AppContext { envDynFlags :: DynFlags.DynFlags
 type OnOff a = (Bool, a)
 
 data AppContextCommon = AppContextCommon { sFlagsExtensions         :: [OnOff Extension]
-                                         , sFlagsGeneralOptions     :: [OnOff DynFlags.GeneralFlag]
+                                         , sFlagsGeneralOptions     :: [OnOff Flags.GeneralFlag]
                                          , sFlagsGlobalIncludePaths :: [String]
                                          }
 
-ghcInitDynFlags :: MonadIO m => m DynFlags.DynFlags
-ghcInitDynFlags = do
-  dflags0 <- liftIO $ runGhc (Just GHC.Paths.libdir) getSessionDynFlags
-  (dflags1, _) <- liftIO $ Packages.initPackages dflags0
-  pure dflags1
+ghcInitSession :: MonadIO m => m Session.DynFlags
+ghcInitSession = liftIO $ runGhc (Just GHC.Paths.libdir) getSessionDynFlags
+
 
 appContext :: MonadIO m => AppContextCommon -> m AppContext
 appContext AppContextCommon{..} = do
-  defDflags <- ghcInitDynFlags
+  defDflags <- ghcInitSession
   let dflags = execState dflagsUpdater defDflags
 
-  return $ AppContext { envDynFlags = dflags, envSourceResourceGetter = gitlabResourceGetter }
+  return $ AppContext { envSession = dflags, envSourceResourceGetter = gitlabResourceGetter }
   where
     dflagsUpdater = do
-      forM_ sFlagsGeneralOptions \(b, opt) -> modify'
-        \dflags -> if b then dflags `DynFlags.gopt_set` opt else dflags `DynFlags.gopt_unset` opt
-      forM_ sFlagsExtensions \(b, ext) -> modify'
-        \dflags -> if b then dflags `DynFlags.xopt_set` ext else dflags `DynFlags.xopt_unset` ext
-      modify' \dflags ->
-        dflags { DynFlags.includePaths = DynFlags.addGlobalInclude (DynFlags.includePaths dflags)
+      forM_ sFlagsGeneralOptions $ \(b, opt) -> modify'
+        (\dflags -> if b then dflags `Session.gopt_set` opt else dflags `Session.gopt_unset` opt)
+      forM_ sFlagsExtensions $ \(b, ext) -> modify'
+        (\dflags -> if b then dflags `Session.xopt_set` ext else dflags `Session.xopt_unset` ext)
+      modify' (\dflags ->
+        dflags { Session.includePaths = Session.addGlobalInclude (Session.includePaths dflags)
                                                                    sFlagsGlobalIncludePaths
-               }
+               })
 
     gitlabResourceGetter fn opts =
       "https://gitlab.haskell.org/ghc/ghc/tree/master/" <> Text.pack fn <> case opts of
         Nothing -> ""
         Just s  -> case srcSpanStart s of
-          RealSrcLoc l -> "#L" <> Text.pack (show $ srcLocLine l)
+          RealSrcLoc l _ -> "#L" <> Text.pack (show $ srcLocLine l)
           _ -> "#"
 
 defaultAppContext :: MonadIO m => m AppContext
 defaultAppContext = appContext $
   AppContextCommon { sFlagsExtensions         = []
                    , sFlagsGeneralOptions     =
-                       [(True, DynFlags.Opt_Haddock), (True, DynFlags.Opt_KeepRawTokenStream)]
+                       [(True, Flags.Opt_Haddock), (True, Flags.Opt_KeepRawTokenStream)]
                    , sFlagsGlobalIncludePaths = [ "dummy_includes"
                                                 , "output/ghc/compiler"
                                                 , "output/ghc/libraries/base/include"
@@ -99,8 +100,8 @@ deriving
   instance Monad m => HasReader "AppContext" AppContext (AppT m)
 
 deriving
-  via (Field "envDynFlags" "ctx" (MonadReader (ReaderT AppContext m)))
-  instance Monad m => HasReader "envDynFlags" DynFlags.DynFlags (AppT m)
+  via (Field "envSession" "ctx" (MonadReader (ReaderT AppContext m)))
+  instance Monad m => HasReader "envSession" Session.DynFlags (AppT m)
 
 instance Monad m => HasSourceResourceGetter (AppT m) where
   sourceResourceGetter fn opts = do

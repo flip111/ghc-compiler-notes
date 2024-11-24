@@ -1,9 +1,16 @@
-module Data.Text.Extra where
+module Data.Text.Extra
+  ( takeWhileM
+  , dropWhileM
+  , stripEmptyLinesStart
+  , stripEmptyLinesEnd
+  , stripEmptyLines
+  ) where
 
 import qualified Data.Char          as Char
 import           Data.Text          () -- instance Monoid Text
 import           Data.Text.Internal
 import           Data.Text.Unsafe
+import Prelude
 
 takeWhileM :: Monad m => (Char -> m Bool) -> Text -> m Text
 takeWhileM p t@(Text arr off len) = loop 0
@@ -52,10 +59,12 @@ stripEmptyLinesEnd t@(Text arr off len) = let !i0 = len - 1 in loop i0 i0
   where
     loop !ri !i
       | i < 0 = loopEnd i
-      | otherwise = let (c, d) = reverseIter t i in if
-        | c == '\n' -> loop i (i + d)
-        | Char.isSpace c -> loop ri (i + d)
-        | otherwise -> loopEnd ri
+      | otherwise =
+          let Iter c d = reverseIter t i
+          in if
+            | c == '\n' -> loop i (i + d)
+            | Char.isSpace c -> loop ri (i + d)
+            | otherwise -> loopEnd ri
 
     loopEnd ri
       | ri < 0 = mempty

@@ -42,7 +42,7 @@ import           Panic
 
 import           Prelude                  hiding ((<>))
 
-import           SrcLoc
+import GHC.Types.SrcLoc
 
 import           StringBuffer
 

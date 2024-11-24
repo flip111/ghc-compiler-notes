@@ -16,7 +16,7 @@ import           GHC.Compiler.Utils.Lexer
 
 import           Lexer                              (Token(..))
 
-import           SrcLoc
+import GHC.Types.SrcLoc
 
 parseCollectedNotesFromHsFile :: (HasReader "envDynFlags" DynFlags m, MonadIO m)
                               => FilePath

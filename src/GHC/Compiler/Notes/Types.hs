@@ -1,15 +1,24 @@
-module GHC.Compiler.Notes.Types where
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
-import           Data.Sequence (Seq(..))
-import           Data.Text     (Text)
+module GHC.Compiler.Notes.Types
+  ( NoteId(..)
+  , Note(..)
+  , CollectedNotes(..)
+  , addNoteByCollecting
+  , HasSourceResourceGetter(..)
+  ) where
 
-import           SrcLoc
+import Prelude
+import Data.Sequence (Seq(..))
+import Data.Text     (Text)
+import GHC.Types.SrcLoc
 
 newtype NoteId = NoteId Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data Note = Note { noteId :: NoteId, noteContent :: Text }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data CollectedNotes =
   CollectedNotes { notes :: Seq (Located Note), noteRefs :: Seq (Located NoteId) }

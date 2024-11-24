@@ -5,13 +5,14 @@ module GHC.Compiler.Notes.FormatRstDoc
   ) where
 
 import           Control.Monad
-
 import           Data.List                (groupBy)
 import qualified Data.Text                as Text
 
 import           GHC.Compiler.Notes.Types
+import           GHC.Types.SrcLoc
 
-import           SrcLoc
+-- Avoid the implicit Prelude warning by explicitly importing Prelude
+import           Prelude
 
 formatRstDoc :: (HasSourceResourceGetter m, Monad m) => FilePath -> CollectedNotes -> m Text.Text
 formatRstDoc targetFn CollectedNotes{..} = do
@@ -54,9 +55,9 @@ codeBlocks = Text.concat . map Text.unlines
            -- A code block should be indented
            " " `Text.isPrefixOf` line &&
            -- A (long enough) code block at least contains code words (word starting symbols) >= 20%
-           (let codeWordSize = length $ filter codeWord $ tokenize line
-                wordSize = length $ tokenize line
-            in wordSize > 5 || fromIntegral codeWordSize / fromIntegral wordSize >= 0.2) &&
+           (let codeWordSize = fromIntegral (length $ filter codeWord $ tokenize line)
+                wordSize = fromIntegral (length $ tokenize line)
+            in wordSize > 5 || codeWordSize / wordSize >= 0.2) &&
            -- A code block should not be an ordered list
            all (not . (`Text.isPrefixOf` Text.stripStart line)) ["(1", "(2", "(3", "(4"] &&
            -- A code block should not start with * or - (that might be a list)

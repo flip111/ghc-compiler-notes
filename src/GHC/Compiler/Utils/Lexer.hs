@@ -6,49 +6,54 @@ import           Control.Monad.Trans.Class
 import           Data.Conduit
 import           Data.Conduit.Combinators  (sinkList)
 
-import           DynFlags                  (DynFlags)
+import qualified GHC.Driver.Flags as Flags
+import qualified GHC.Driver.Session as Session
 
-import           FastString                (mkFastString)
+import           GHC.Data.FastString       (mkFastString)
 
-import qualified Lexer
-import           Lexer                     (ParseResult(..), Token(..))
+import qualified GHC.Parser.Lexer as Lexer
+import           GHC.Parser.Lexer          (ParseResult(..), Token(..))
 
-import qualified Outputable
+import qualified GHC.Utils.Outputable as Outputable
 
-import           Pretty                    (Doc)
+import           GHC.Utils.Ppr as Pretty                 (Doc)
 
-import           SrcLoc
+import GHC.Types.SrcLoc
 
-import qualified StringBuffer
+import qualified GHC.Data.StringBuffer as StringBuffer
+import GHC.Driver.Config.Parser (initParserOpts)
+import qualified GHC.Types.Error
+import qualified GHC.Parser.Errors.Types
 
 type Parser = Lexer.P
 
-newtype ParseFailed = ParseFailed { pFailedMsg :: [(SrcSpan, Doc)] }
-  deriving Show
+newtype ParseFailed = ParseFailed { pFailedMsg :: GHC.Types.Error.Messages GHC.Parser.Errors.Types.PsMessage }
 
-fromParseResult :: DynFlags -> ParseResult a -> Either ParseFailed a
+fromParseResult :: Session.DynFlags -> ParseResult a -> Either ParseFailed a
 fromParseResult _ (POk _ x) = Right x
 fromParseResult dflags (PFailed _ s d) = Left $ ParseFailed [(s, Outputable.runSDoc d ctx)]
   where
-    ctx = Outputable.initSDocContext dflags $ Outputable.defaultErrStyle dflags
+    ctx = Session.initSDocContext dflags $ Outputable.defaultErrStyle dflags
+
 
 runParser :: Parser a
-          -> DynFlags
+          -> Session.DynFlags
           -> StringBuffer.StringBuffer
           -> RealSrcLoc
           -> Either ParseFailed a
-runParser p dflags buf loc = fromPR $ Lexer.unP p $ Lexer.mkPState dflags buf loc
+runParser p dflags buf loc = fromPR $ Lexer.unP p $ Lexer.initParserState opts buf loc
   where
+    opts   = initParserOpts (dflags `Session.gopt_set` Session.Opt_Haddock)
     fromPR = fromParseResult dflags
 
-runParserFromString :: Parser a -> DynFlags -> String -> Either ParseFailed a
+runParserFromString :: Parser a -> Session.DynFlags -> String -> Either ParseFailed a
 runParserFromString p dflags str = runParser p dflags buf loc
   where
     buf = StringBuffer.stringToStringBuffer str
 
     loc = mkRealSrcLoc (mkFastString "") 1 1
 
-runParserFromFile :: MonadIO m => Parser a -> DynFlags -> String -> m (Either ParseFailed a)
+runParserFromFile :: MonadIO m => Parser a -> Session.DynFlags -> String -> m (Either ParseFailed a)
 runParserFromFile p dflags fn = do
   buf <- liftIO $ StringBuffer.hGetStringBuffer fn
   pure $ runParser p dflags buf loc

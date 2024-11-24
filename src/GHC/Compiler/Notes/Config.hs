@@ -1,17 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DerivingStrategies #-}
 
-module GHC.Compiler.Notes.Config where
+module GHC.Compiler.Notes.Config
+  ( NoteConfig(..)
+  , NoteConfigResource(..)
+  , parseConfigFromString
+  , parseConfigFromFile
+  ) where
 
+import Prelude
 import qualified Data.ByteString      as ByteString
 import           Data.Yaml
-
 import qualified System.FilePath.Glob as Glob
 
 data NoteConfig = NoteConfig { confResource :: NoteConfigResource
                              , confOutDir   :: String
                              , confTargets  :: [Glob.Pattern]
                              }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON NoteConfig where
   parseJSON = withObject "NoteConfig" $ \v -> NoteConfig
@@ -21,7 +27,7 @@ instance FromJSON NoteConfig where
          <$> v .: "targets")
 
 data NoteConfigResource = NoteConfigResource
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 instance FromJSON NoteConfigResource where
   parseJSON = withObject "NoteConfigResource" $ \_ -> pure NoteConfigResource

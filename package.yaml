@@ -1,0 +1,133 @@
+name: ghc-compiler-notes
+version: 0.1.1.0
+license: MIT
+license-file: LICENSE
+maintainer: ioi.joi.koi.loi@gmail.com
+author: myuon
+homepage: https://github.com/myuon/ghc-compiler-notes
+category: Language
+extra-source-files:
+  - ChangeLog.md
+  - README.md
+
+flags:
+  dev:
+    description: Turn on development settings.
+    manual: true
+    default: false
+
+default-extensions:
+# https://github.com/commercialhaskell/rio#language-extensions
+# https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0380-ghc2021.rst
+# https://github.com/ghc-proposals/ghc-proposals/blob/master/proposals/0613-ghc2024.rst
+
+- DeriveFunctor
+- DeriveGeneric
+- TypeOperators
+- FlexibleContexts
+
+# Rio
+- DefaultSignatures
+- FunctionalDependencies
+- GeneralizedNewtypeDeriving
+- MultiWayIf
+# - NoImplicitPrelude
+- OverloadedStrings
+- PartialTypeSignatures
+- RecordWildCards 
+- TypeFamilies
+- ViewPatterns
+
+# Rio + GHC2024
+- DataKinds
+- GADTs
+- LambdaCase
+
+# GHC2024
+- DerivingStrategies
+- DisambiguateRecordFields
+- ExplicitNamespaces
+- MonoLocalBinds
+- RoleAnnotations
+
+# library
+- BangPatterns
+- TypeApplications
+
+ghc-options:
+- -Weverything
+- -Wno-missing-import-lists
+- -Wno-missing-kind-signatures
+- -Wno-missing-local-signatures
+- -Wno-missing-safe-haskell-mode
+- -Wno-monomorphism-restriction
+- -Wno-prepositive-qualified-module
+- -Wno-safe
+- -Wno-unsafe
+- -Werror=identities
+- -Werror=incomplete-record-updates
+- -Werror=incomplete-uni-patterns
+- -Werror=partial-fields
+
+# Enable again for performance analysis
+- -Wno-missed-specialisations
+- -Wno-all-missed-specialisations
+
+# Enable again when done with development
+- -Wno-unused-top-binds
+# - -Werror=redundant-constraints -- add back later
+
+library:
+  source-dirs: src
+  other-modules:
+    - Paths_ghc_compiler_notes
+  dependencies:
+    - base
+    - bytestring
+    - text
+    - exceptions
+    - capability
+    - transformers
+    - ghc
+    - ghc-boot
+    - ghc-paths
+    - conduit
+    - containers
+    - directory
+    - filepath
+    - Glob
+    - regex-applicative
+    - temporary
+    - yaml
+
+executables:
+  ghc-compiler-notes:
+    main: Comment.hs
+    source-dirs: app
+    dependencies:
+      - ghc-compiler-notes
+      - optparse-applicative
+    ghc-options:
+      - -O2
+  extract-notes:
+    main: ExtractNotes.hs
+    source-dirs: app
+    dependencies:
+      - ghc-compiler-notes
+      - optparse-applicative
+    ghc-options:
+      - -O2
+
+tests:
+  unit-tests:
+    main: SpecDriver.hs
+    source-dirs: test
+    dependencies:
+      - ghc-compiler-notes
+      - tasty
+      - tasty-hspec
+      - tasty-discover
+    other-modules:
+      - ResourceTests
+    build-tools:
+      - tasty-discover
