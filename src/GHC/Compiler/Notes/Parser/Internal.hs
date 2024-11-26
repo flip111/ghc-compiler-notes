@@ -1,31 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BlockArguments #-}
 
 module GHC.Compiler.Notes.Parser.Internal where
 
 import           Control.Applicative
-
 import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.State
-
-import qualified Data.Char                 as Char
-
 import           Data.Coerce
 import           Data.Conduit
-
 import           Data.Monoid
-import qualified Data.Text                 as Text
-
-import qualified Data.Text.Extra           as Text
-
 import           GHC.Compiler.Notes.Types
 import           GHC.Compiler.Utils.Lexer
-
-import           Lexer                     (Token(..))
-
-import GHC.Types.SrcLoc
-
+import           GHC.Hs.DocString
+import           GHC.Parser.Lexer          (Token(..))
+import           GHC.Types.SrcLoc
+import qualified Data.Char                 as Char
+import qualified Data.List.NonEmpty as NonEmpty
+import qualified Data.Text                 as Text
+import qualified Data.Text.Extra           as Text
 import qualified Text.Regex.Applicative    as Regex
+import qualified Data.Text.Encoding as Text
+import           Prelude
 
 data CollectedNotesCtx =
   CollectedNotesCtx { cnCtxCollectedNotes :: CollectedNotes, cnCtxCommentIndent :: Int }
@@ -51,7 +47,7 @@ addBufferByCollecting b (L p2 s) (L p1 t) = L (combineSrcSpans p1 p2) $
     ls = Text.replicate n "\n"
 
 betweenLineCount :: SrcSpan -> SrcSpan -> Int
-betweenLineCount (RealSrcSpan sp1) (RealSrcSpan sp2) = srcSpanEndLine sp2 - srcSpanEndLine sp1 - 1
+betweenLineCount (RealSrcSpan sp1 _) (RealSrcSpan sp2 _) = srcSpanEndLine sp2 - srcSpanEndLine sp1 - 1
 betweenLineCount _ _ = 0
 
 stripIndentedLineComment :: Monad m
@@ -91,7 +87,7 @@ isNoteStartLineComment s = do
       Just t  -> do
         lift $ leftover t
         case t of
-          L p (ITlineComment s2)
+          L p (ITlineComment s2 _)
             | isTopLevelSrcLoc $ srcSpanStart p -> do
               ns2 <- stripIndentedLineComment $ L p s2
               case Regex.match noteTitleSectionLineMatcher $ unLoc ns2 of
@@ -144,10 +140,10 @@ sinkWaitingNoteComment = lift await >>= \case
                         sinkWaitingNoteComment in case isTopLevelSrcLoc $ srcSpanStart p of
     False -> m
     True  -> case t of
-      ITlineComment s -> isNoteStartLineComment (L p s) >>= \case
+      ITlineComment s _ -> isNoteStartLineComment (L p s) >>= \case
         Just ns -> sinkParsingNoteComment $ initialParsingCtx True ns
         Nothing -> sinkWaitingNoteComment
-      ITblockComment s -> parseBlockComment Nothing $ L p s
+      ITblockComment s _ -> parseBlockComment Nothing $ L p s
       _ -> m
 
 parseBlockComment :: Maybe ParsingCtx -> Located String -> CollectNotesStateParser o ()
@@ -177,8 +173,8 @@ sourceBlockCommentLines (L p s) = case s of
   _          -> error "unreachable"
   where
     go sl !el chunk "-}" = yield $ L (mkSrcSpan sl el) $ chunk []
-    go sl !el chunk (c:ns) = let el' = advanceSrcLocFromChar el c
-                                 nchunk = chunk . (c :) in case c of
+    go sl el chunk (c:ns) = let el' = advanceSrcLocFromChar el c
+                                nchunk = chunk . (c :) in case c of
       '\n' -> do
         yield $ L (mkSrcSpan sl el) $ nchunk []
         go el' el' id ns
@@ -186,7 +182,7 @@ sourceBlockCommentLines (L p s) = case s of
     go _ _ _ [] = error "unreachable"
 
 advanceSrcLocFromChar :: SrcLoc -> Char -> SrcLoc
-advanceSrcLocFromChar (RealSrcLoc l) c = RealSrcLoc $ advanceSrcLoc l c
+advanceSrcLocFromChar (RealSrcLoc l bufPos) c = RealSrcLoc (advanceSrcLoc l c) bufPos
 advanceSrcLocFromChar l _ = l
 
 sinkBlockCommentContents :: (Maybe ParsingCtx -> CollectNotesStateParser o2 ())
@@ -259,9 +255,13 @@ sinkParsingNoteComment ctx = lift await >>= \case
                         sinkWaitingNoteComment in case isTopLevelSrcLoc $ srcSpanStart p of
     False -> m
     True  -> case t of
-      ITdocCommentNamed s -> let nctx = addBufferByCollecting True (removeNamedTag $ L p s) ctx
+      ITdocComment hsDoc _psSpan ->
+        -- Check if this is a `-- $`-style comment
+        let nctx = if isNamedDocComment hsDoc
+                      then addBufferByCollecting True (removeNamedTag $ L p (extractDocString hsDoc)) ctx
+                      else ctx
         in sinkParsingNoteComment nctx
-      ITlineComment s -> if isHorizontalRuleLineComment s
+      ITlineComment s _psSpan -> if isHorizontalRuleLineComment s
         then m
         else isNoteStartLineComment (L p s) >>= \case
           Just ns -> do
@@ -271,10 +271,29 @@ sinkParsingNoteComment ctx = lift await >>= \case
             ns <- stripIndentedLineComment $ L p s
             let nctx = addBufferByCollecting True ns ctx
             sinkParsingNoteComment nctx
-      ITblockComment s -> parseBlockComment (Just ctx) $ L p s
+      ITblockComment s _psSpan -> parseBlockComment (Just ctx) $ L p s
       ITsemi -> sinkParsingNoteComment ctx -- skip layout tokens
       _ -> m
   where
+    -- Helper to extract the actual content of the HsDocString
+    extractDocString :: HsDocString -> String
+    extractDocString (MultiLineDocString _ chunks) =
+      concatMap (chunkToString . unLoc) (NonEmpty.toList chunks)
+    extractDocString (NestedDocString _ chunk) =
+      chunkToString (unLoc chunk)
+    extractDocString (GeneratedDocString chunk) =
+      chunkToString chunk
+
+    -- Converts an HsDocStringChunk to String
+    chunkToString :: HsDocStringChunk -> String
+    chunkToString (HsDocStringChunk bs) = Text.unpack (Text.decodeUtf8 bs)
+
+    -- Check if the HsDocString starts with a '$' (indicating `-- $`)
+    isNamedDocComment :: HsDocString -> Bool
+    isNamedDocComment hsDoc = case extractDocString hsDoc of
+      ('$':_) -> True
+      _       -> False
+
     removeNamedTag (L p s)      = removeNamedTag' (srcSpanStart p) (srcSpanEnd p) s
 
     removeNamedTag' sl el []    = L (mkSrcSpan sl el) []
@@ -301,5 +320,6 @@ completeParsingNote (L p buf) = addNoteByCollectingInState $ L p $
                 evalState (Text.dropWhileM skipTwoLine buf) (0 :: Int)
 
 isTopLevelSrcLoc :: SrcLoc -> Bool
+isTopLevelSrcLoc (RealSrcLoc l _) = srcLocCol l == 1
 isTopLevelSrcLoc UnhelpfulLoc{} = False
-isTopLevelSrcLoc (RealSrcLoc l) = srcLocCol l == 1
+

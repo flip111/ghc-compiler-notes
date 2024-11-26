@@ -1,58 +1,38 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE BlockArguments #-}
 
 module GHC.Compiler.Utils.HeaderOptions where
 
-import           Bag                      (unitBag)
-
 import           Control.Monad
 import           Control.Monad.IO.Class
-
 import           Data.Functor
 import           Data.List                (intercalate)
 import           Data.Maybe               (catMaybes)
 import           Data.Version
-
-import           DynFlags
-
-import           ErrUtils
-
-import           Exception
-
-import           FastString
-
-import           FileCleanup
-
 import           GHC.Compiler.Utils.Lexer
-
-import qualified GHC.LanguageExtensions   as LangExt
-
-import           HeaderInfo
-
-import           HscTypes
-
-import           Lexer
-
-import           Module
-
-import           Outputable
-
-import           Packages
-
-import           Panic
-
+import           GHC.Data.Bag             (unitBag)
+import           GHC.Data.FastString
+import           GHC.Data.StringBuffer
+import           GHC.Hs.Utils
+import           GHC.SysTools
+import           GHC.Unit.Module
+import           GHC.Utils.Exception
+import           GHC.Utils.Outputable
+import           GHC.Utils.Panic
+import           GHC.Parser.Lexer
 import           Prelude                  hiding ((<>))
-
-import GHC.Types.SrcLoc
-
-import           StringBuffer
-
-import           SysTools
-
 import           System.Directory
 import           System.FilePath
+import           GHC.Driver.Session (DynFlags)
+import           GHC.Types.SrcLoc
+import           GHC.Driver.Session
+import qualified GHC.LanguageExtensions   as LangExt
 import qualified System.IO.Temp           as Temp
-
-import           Util
+import qualified GHC.SysTools as SysTools
+import           GHC.Parser.Header
+import           GHC.Platform
+import           GHC.SysTools.Cpp hiding (doCpp)
+import           GHC.Utils.TmpFs
 
 -- See https://hackage.haskell.org/package/ghc-8.6.1/docs/src/DriverPipeline.html#line-917
 parseDynFlagsFromHsFileHead :: MonadIO m => DynFlags -> FilePath -> m DynFlags
@@ -134,6 +114,12 @@ doCpp dflags raw input_fn output_fn = do
         ++ ["-D__AVX512F__" | isAvx512fEnabled dflags]
         ++ ["-D__AVX512PF__" | isAvx512pfEnabled dflags]
 
+{-
+Todo:
+the function getBackendDefs has been removed in GHC 9.6.6
+and also it has moved around a lot and been changed a couple of times
+It's a bit hard to figure out what is supposed to happen here in about 5 years of historical commits
+-}
   backend_defs <- getBackendDefs dflags
 
   let th_defs = ["-D__GLASGOW_HASKELL_TH__"]
